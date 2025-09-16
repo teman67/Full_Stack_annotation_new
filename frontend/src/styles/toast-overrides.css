@@ -1,0 +1,79 @@
+/* Custom toast styling */
+.sonner-toast[data-type="error"] {
+  border-left: 4px solid var(--destructive);
+  background-color: color-mix(
+    in srgb,
+    var(--destructive) 10%,
+    var(--background)
+  );
+  color: var(--foreground);
+  font-weight: 500;
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.25); /* Stronger shadow */
+  opacity: 1 !important;
+  animation: none !important;
+  transition: none !important; /* Prevent any fade animations */
+  padding: 14px 16px; /* Slightly larger padding */
+  z-index: 1000 !important; /* Ensure it appears above other elements */
+  min-height: 60px; /* Minimum height to ensure visibility */
+  /* Make error toasts more prominent */
+  border: 2px solid var(--destructive) !important;
+  font-size: 14px !important;
+  /* Force error toasts to stay visible */
+  visibility: visible !important;
+  display: block !important;
+}
+
+/* Make toasts more visible */
+.sonner-toast {
+  --y: min(calc(var(--offset) + 16px), 1.5rem) !important;
+  opacity: 1 !important;
+  transform: translateY(var(--y)) scale(1) !important;
+}
+
+/* Prevent error toasts from disappearing - override all dismissal behaviors */
+.sonner-toast[data-type="error"][data-visible="false"] {
+  opacity: 1 !important;
+  visibility: visible !important;
+  display: block !important;
+  transform: translateY(var(--y)) scale(1) !important;
+  transition: none !important;
+}
+
+/* Force error toasts to maintain visibility in all states */
+.sonner-toast[data-type="error"] {
+  opacity: 1 !important;
+  visibility: visible !important;
+  display: block !important;
+}
+
+/* Override Sonner's default hiding behavior */
+.sonner-toast-container [data-type="error"][data-visible="true"] {
+  opacity: 1 !important;
+}
+
+/* Make action buttons more prominent */
+.sonner-toast-action {
+  background-color: rgba(255, 255, 255, 0.1) !important;
+  padding: 6px 10px !important;
+  border-radius: 4px !important;
+  font-weight: 500 !important;
+  transition: background-color 0.2s ease !important;
+}
+
+.sonner-toast-action:hover {
+  background-color: rgba(255, 255, 255, 0.2) !important;
+}
+
+/* Emphasize error toasts even more */
+.sonner-toast[data-type="error"] .sonner-toast-action {
+  background-color: var(--destructive) !important;
+  color: white !important;
+}
+
+.sonner-toast[data-type="error"] .sonner-toast-action:hover {
+  background-color: color-mix(
+    in srgb,
+    var(--destructive) 80%,
+    black
+  ) !important;
+}
