@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { withAuth } from "@/components/auth/withAuth";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
@@ -44,11 +44,51 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
-// Start with an empty list for new users
-const mockTagSets: TagSet[] = [];
+// Define types for TagSet and Tag
+interface Tag {
+  name: string;
+  color: string;
+  description: string;
+}
+
+interface TagSet {
+  id: number;
+  name: string;
+  description: string;
+  tags: Tag[];
+  createdAt: string;
+  updatedAt?: string;
+  createdBy?: string;
+  owner_id?: string;
+  usageCount?: number;
+  isDefault?: boolean;
+  file_path?: string;
+}
 
 function TagSetsPage() {
-  const [tagSets, setTagSets] = useState(mockTagSets);
+  const [tagSets, setTagSets] = useState<TagSet[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  
+  // Load tagsets from API
+  useEffect(() => {
+    async function loadTagsets() {
+      try {
+        setIsLoading(true);
+        const { getUserTagsets } = await import('@/lib/api/tagsets');
+        const response = await getUserTagsets();
+        
+        if (response.success && Array.isArray(response.tagsets)) {
+          setTagSets(response.tagsets);
+        }
+      } catch (error) {
+        console.error("Error loading tagsets:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    
+    loadTagsets();
+  }, []);
   const [searchTerm, setSearchTerm] = useState("");
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
@@ -125,17 +165,62 @@ function TagSetsPage() {
     window.URL.revokeObjectURL(url);
   };
 
-  const handleFileImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const [csvName, setCsvName] = useState("");
+  const [csvDescription, setCsvDescription] = useState("");
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState("");
+  
+  const handleFileImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const csv = event.target?.result as string;
-        // Parse CSV and create tag set
-        console.log("Importing CSV:", csv);
+    if (!file) return;
+    
+    if (!csvName.trim()) {
+      setUploadError("Please enter a name for the tag set");
+      return;
+    }
+    
+    try {
+      setIsUploading(true);
+      setUploadError("");
+      
+      // Import the uploadTagsetCSV function
+      const { uploadTagsetCSV } = await import('@/lib/api/tagsets');
+      
+      // Upload the file
+      const result = await uploadTagsetCSV(file, csvName, csvDescription);
+      
+      // If successful, add the new tagset to the list
+      if (result.success && result.tagset) {
+        setTagSets((prev) => [...prev, result.tagset]);
         setIsImportDialogOpen(false);
-      };
-      reader.readAsText(file);
+        
+        // Reset form
+        setCsvName("");
+        setCsvDescription("");
+        e.target.value = "";
+      } else {
+        setUploadError(result.message || "Failed to upload tagset");
+      }
+    } catch (error: unknown) {
+      console.error("Error importing CSV:", error);
+      
+      // Handle Axios error with detailed response data
+      const axiosError = error as { data?: { detail?: string }; message?: string };
+      
+      if (axiosError.data && axiosError.data.detail) {
+        // For backend validation errors with detailed messages
+        setUploadError(axiosError.data.detail);
+      } else if (axiosError.message && axiosError.message.includes("columns")) {
+        // For CSV format errors
+        setUploadError(
+          `CSV Format Error: ${axiosError.message}\n\nMake sure your CSV has the exact headers: tag_name, color, description`
+        );
+      } else {
+        // Generic error
+        setUploadError(error instanceof Error ? error.message : "Failed to upload CSV file");
+      }
+    } finally {
+      setIsUploading(false);
     }
   };
 
@@ -178,17 +263,48 @@ function TagSetsPage() {
                   </DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4">
-                  <input
-                    type="file"
-                    accept=".csv"
-                    onChange={handleFileImport}
-                    className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-primary-foreground hover:file:bg-primary/80"
-                  />
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Tag Set Name</label>
+                    <Input
+                      value={csvName}
+                      onChange={(e) => setCsvName(e.target.value)}
+                      placeholder="Enter a name for this tag set"
+                      required
+                    />
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Description (Optional)</label>
+                    <Textarea
+                      value={csvDescription}
+                      onChange={(e) => setCsvDescription(e.target.value)}
+                      placeholder="Enter a description for this tag set"
+                      rows={2}
+                    />
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">CSV File</label>
+                    <input
+                      type="file"
+                      accept=".csv"
+                      onChange={handleFileImport}
+                      className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-primary-foreground hover:file:bg-primary/80"
+                    />
+                  </div>
+                  
+                  {uploadError && (
+                    <div className="text-red-500 text-sm mt-2 p-2 bg-red-50 border border-red-200 rounded whitespace-pre-line">
+                      {uploadError}
+                    </div>
+                  )}
                 </div>
+                
                 <DialogFooter>
                   <Button
                     variant="outline"
                     onClick={() => setIsImportDialogOpen(false)}
+                    disabled={isUploading}
                   >
                     Cancel
                   </Button>
@@ -389,7 +505,25 @@ function TagSetsPage() {
                         Export CSV
                       </DropdownMenuItem>
                       {!tagSet.isDefault && (
-                        <DropdownMenuItem className="text-red-600">
+                        <DropdownMenuItem 
+                          className="text-red-600"
+                          onClick={async () => {
+                            if (confirm(`Are you sure you want to delete "${tagSet.name}"?`)) {
+                              try {
+                                const { deleteTagset } = await import('@/lib/api/tagsets');
+                                const result = await deleteTagset(tagSet.id);
+                                
+                                if (result.success) {
+                                  // Remove the tagset from the list
+                                  setTagSets(prev => prev.filter(ts => ts.id !== tagSet.id));
+                                }
+                              } catch (error) {
+                                console.error("Error deleting tagset:", error);
+                                alert("Failed to delete tagset");
+                              }
+                            }
+                          }}
+                        >
                           <Trash2 className="h-4 w-4 mr-2" />
                           Delete
                         </DropdownMenuItem>

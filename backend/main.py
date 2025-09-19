@@ -86,6 +86,9 @@ app.include_router(auth_router, prefix="/api/auth", tags=["authentication"])
 from app.api.projects_supabase import router as projects_supabase_router
 app.include_router(projects_supabase_router, prefix="/api/projects", tags=["projects"])
 
+from app.api.tagsets_supabase import router as tagsets_supabase_router
+app.include_router(tagsets_supabase_router, prefix="/api/tagsets", tags=["tagsets"])
+
 # TODO: Update these routers to use Supabase
 # app.include_router(documents_router, prefix="/api/documents", tags=["documents"])
 # app.include_router(annotations_router, prefix="/api/annotations", tags=["annotations"])

@@ -6,9 +6,23 @@ from app.core.config import settings
 from supabase import create_client, Client
 from typing import Dict, List, Optional, Any
 import json
+import os
 
-# Supabase client setup - this is our only database interface
+# Regular Supabase client setup - this is our primary database interface
 supabase: Client = create_client(settings.supabase_url, settings.supabase_anon_key)
+
+# Service role client with admin privileges (used to bypass RLS when needed)
+service_role_key = settings.supabase_service_role_key
+if service_role_key:
+    try:
+        admin_supabase: Client = create_client(settings.supabase_url, service_role_key)
+        print("✅ Supabase admin client initialized successfully")
+    except Exception as e:
+        print(f"⚠️ Failed to initialize admin client: {e}")
+        admin_supabase = None
+else:
+    print("⚠️ No SUPABASE_SERVICE_ROLE_KEY found, admin functions will not be available")
+    admin_supabase = None
 
 print("✅ Supabase client initialized successfully")
 print(f"🔗 Connected to: {settings.supabase_url}")
@@ -30,6 +44,13 @@ def get_supabase_client() -> Client:
 def get_db():
     """Database dependency - returns Supabase client"""
     return supabase
+
+# Admin client with service role key for bypassing RLS
+def get_admin_db():
+    """Returns admin Supabase client with service role key (bypasses RLS)"""
+    if not admin_supabase:
+        raise Exception("Admin database client not available. Check SUPABASE_SERVICE_ROLE_KEY")
+    return admin_supabase
 
 class DatabaseService:
     """
