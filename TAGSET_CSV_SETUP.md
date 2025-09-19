@@ -31,6 +31,7 @@ Since the automatic policy creation might fail, follow these steps to set up pol
 **Important**: Before the CSV upload functionality will work properly, you MUST create the `tagsets` table in your Supabase database. This is a critical prerequisite step.
 
 To create the table:
+
 1. Go to your Supabase project dashboard
 2. Navigate to "SQL Editor" (under "Database" in the left sidebar)
 3. Create a new query
@@ -41,13 +42,13 @@ Execute this SQL in the Supabase SQL Editor:
 
 ```sql
 -- First check that users table exists and has proper ID type
-SELECT data_type 
-FROM information_schema.columns 
-WHERE table_name = 'users' 
+SELECT data_type
+FROM information_schema.columns
+WHERE table_name = 'users'
 AND column_name = 'id';
 
 -- Important: UUID type handling for Supabase Auth
--- 
+--
 -- Supabase Auth always uses UUID for user IDs
 -- Our app handles this by converting IDs to strings for database operations
 -- You have two options:
@@ -92,6 +93,7 @@ CREATE POLICY "Users can delete their own tagsets" ON tagsets
 ```
 
 > **Important UUID Type Note**: If you choose to use UUID type for the owner_id column, make sure to modify the policies accordingly:
+>
 > ```sql
 > -- If using UUID type for owner_id:
 > CREATE POLICY "Users can view their own tagsets" ON tagsets
@@ -123,6 +125,7 @@ npm run dev
    - Each row represents one tag
 
 Example CSV content (copy and paste this format):
+
 ```csv
 tag_name,definition,examples
 PERSON,A human individual,John Smith, Mary Jones
@@ -148,14 +151,14 @@ If you see an error about "violating row-level security policy":
 If you encounter type compatibility errors:
 
 1. Check the data type of the `owner_id` column in the `tagsets` table:
+
    ```sql
-   SELECT column_name, data_type FROM information_schema.columns 
+   SELECT column_name, data_type FROM information_schema.columns
    WHERE table_name = 'tagsets' AND column_name = 'owner_id';
    ```
 
 2. If using TEXT type (recommended):
    - Make sure all RLS policies use the cast `auth.uid()::text` for comparison
-   
 3. If using UUID type:
    - Ensure proper reference to auth.users(id)
    - Make sure RLS policies use auth.uid() without casting
@@ -243,9 +246,9 @@ CREATE TABLE tagsets (
 );
 
 -- Check the structure to confirm
-SELECT column_name, data_type 
-FROM information_schema.columns 
-WHERE table_name = 'tagsets' 
+SELECT column_name, data_type
+FROM information_schema.columns
+WHERE table_name = 'tagsets'
 AND column_name = 'owner_id';
 
 -- Add RLS policies for the tagsets table with proper type casting:
@@ -261,13 +264,13 @@ DROP POLICY IF EXISTS "Users can delete their own tagsets" ON tagsets;
 -- This is CRITICAL for proper functioning with UUID user IDs
 CREATE POLICY "Users can view their own tagsets" ON tagsets
   FOR SELECT USING (auth.uid()::text = owner_id);
-  
+
 CREATE POLICY "Users can insert their own tagsets" ON tagsets
   FOR INSERT WITH CHECK (auth.uid()::text = owner_id);
-  
+
 CREATE POLICY "Users can update their own tagsets" ON tagsets
   FOR UPDATE USING (auth.uid()::text = owner_id);
-  
+
 CREATE POLICY "Users can delete their own tagsets" ON tagsets
   FOR DELETE USING (auth.uid()::text = owner_id);
 ```

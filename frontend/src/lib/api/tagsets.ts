@@ -1,5 +1,5 @@
 // API client for tagsets operations
-import api from '@/lib/api/client';
+import api from "@/lib/api/client";
 
 /**
  * Upload a tagset CSV file
@@ -8,15 +8,19 @@ import api from '@/lib/api/client';
  * @param description - The description of the tagset
  * @returns The created tagset
  */
-export async function uploadTagsetCSV(file: File, name: string, description: string = '') {
+export async function uploadTagsetCSV(
+  file: File,
+  name: string,
+  description: string = ""
+) {
   const formData = new FormData();
-  formData.append('file', file);
-  formData.append('name', name);
-  formData.append('description', description);
+  formData.append("file", file);
+  formData.append("name", name);
+  formData.append("description", description);
 
-  const response = await api.post('/tagsets/upload-csv', formData, {
+  const response = await api.post("/tagsets/upload-csv", formData, {
     headers: {
-      'Content-Type': 'multipart/form-data',
+      "Content-Type": "multipart/form-data",
     },
   });
 
@@ -28,7 +32,7 @@ export async function uploadTagsetCSV(file: File, name: string, description: str
  * @returns Array of tagsets
  */
 export async function getUserTagsets() {
-  const response = await api.get('/tagsets');
+  const response = await api.get("/tagsets");
   return response.data;
 }
 
