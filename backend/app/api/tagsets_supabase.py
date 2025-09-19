@@ -11,6 +11,7 @@ import io
 import csv
 from typing import List, Dict, Any, Optional
 import uuid
+from pydantic import BaseModel, Field
 
 from app.core.database_supabase import get_db, get_admin_db
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -65,6 +66,18 @@ async def get_current_user(
         )
     
     return user
+
+# Define Tag and TagSet models
+class Tag(BaseModel):
+    name: str
+    color: str
+    description: str = ""
+    examples: Optional[str] = ""
+
+class TagSetUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    tags: Optional[List[Tag]] = None
 
 router = APIRouter()
 
@@ -383,6 +396,75 @@ async def get_tagset(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to retrieve tagset: {str(e)}"
+        )
+
+@router.patch("/{tagset_id}")
+async def update_tagset(
+    tagset_id: int,
+    tagset_data: TagSetUpdate,
+    current_user: dict = Depends(get_current_user),
+    db = Depends(get_db)
+):
+    """
+    Update an existing tagset
+    """
+    try:
+        user_id = current_user["id"]
+        
+        # Get the tagset to check ownership
+        get_response = db.table("tagsets").select("*").eq("id", int(tagset_id)).execute()
+        
+        if not get_response.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Tagset not found"
+            )
+            
+        existing_tagset = get_response.data[0]
+        
+        # Check if user owns the tagset - convert to string for comparison to avoid type issues
+        if str(existing_tagset["owner_id"]) != str(user_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to update this tagset"
+            )
+        
+        # Prepare data for update - only allow certain fields to be updated
+        update_data = {
+            "updated_at": "NOW()"
+        }
+        
+        # Only update fields that were provided
+        if tagset_data.name is not None:
+            update_data["name"] = tagset_data.name
+            
+        if tagset_data.description is not None:
+            update_data["description"] = tagset_data.description
+            
+        if tagset_data.tags is not None:
+            update_data["tags"] = [tag.dict() for tag in tagset_data.tags]
+        
+        # Update the tagset in the database
+        update_response = db.table("tagsets").update(update_data).eq("id", int(tagset_id)).execute()
+        
+        if not update_response.data:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to update tagset"
+            )
+            
+        return {
+            "success": True,
+            "message": "Tagset updated successfully",
+            "tagset": update_response.data[0]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error updating tagset: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update tagset: {str(e)}"
         )
 
 @router.delete("/{tagset_id}")

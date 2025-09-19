@@ -55,3 +55,21 @@ export async function deleteTagset(tagsetId: number) {
   const response = await api.delete(`/tagsets/${tagsetId}`);
   return response.data;
 }
+
+/**
+ * Update an existing tagset
+ * @param tagsetId - The ID of the tagset to update
+ * @param tagsetData - The updated tagset data
+ * @returns The updated tagset
+ */
+export async function updateTagset(
+  tagsetId: number,
+  tagsetData: {
+    name: string;
+    description: string;
+    tags: Array<{ name: string; color: string; description: string }>;
+  }
+) {
+  const response = await api.patch(`/tagsets/${tagsetId}`, tagsetData);
+  return response.data;
+}

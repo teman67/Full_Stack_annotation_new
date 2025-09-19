@@ -92,6 +92,8 @@ function TagSetsPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [editingTagSet, setEditingTagSet] = useState<TagSet | null>(null);
 
   // Reset import form when dialog opens/closes
   useEffect(() => {
@@ -103,6 +105,13 @@ function TagSetsPage() {
       setUploadError("");
     }
   }, [isImportDialogOpen]);
+
+  // Reset edit form when dialog closes
+  useEffect(() => {
+    if (!isEditDialogOpen) {
+      setEditingTagSet(null);
+    }
+  }, [isEditDialogOpen]);
   const [selectedTagSet, setSelectedTagSet] = useState<TagSet | null>(null);
   const [newTagSet, setNewTagSet] = useState({
     name: "",
@@ -155,6 +164,61 @@ function TagSetsPage() {
       ...prev,
       tags: prev.tags.filter((_, i) => i !== index),
     }));
+  };
+
+  const handleAddTagToEditing = () => {
+    if (newTag.name.trim() && editingTagSet) {
+      setEditingTagSet((prev) => ({
+        ...prev!,
+        tags: [...prev!.tags, { ...newTag, name: newTag.name.toUpperCase() }],
+      }));
+      setNewTag({ name: "", color: "#3B82F6", description: "" });
+    }
+  };
+
+  const handleRemoveTagFromEditing = (index: number) => {
+    if (editingTagSet) {
+      setEditingTagSet((prev) => ({
+        ...prev!,
+        tags: prev!.tags.filter((_, i) => i !== index),
+      }));
+    }
+  };
+
+  const handleStartEdit = (tagSet: TagSet) => {
+    setEditingTagSet({ ...tagSet });
+    setIsEditDialogOpen(true);
+  };
+
+  const handleUpdateTagSet = async () => {
+    if (!editingTagSet) return;
+
+    try {
+      // Update the tagset in the UI immediately for better UX
+      setTagSets((prev) =>
+        prev.map((ts) => (ts.id === editingTagSet.id ? editingTagSet : ts))
+      );
+
+      // Close the dialog
+      setIsEditDialogOpen(false);
+
+      // Make an API call to update the tagset
+      const { updateTagset } = await import("@/lib/api/tagsets");
+      await updateTagset(editingTagSet.id, editingTagSet);
+
+      // Show a success message
+      alert("Tagset updated successfully!");
+    } catch (error) {
+      console.error("Error updating tagset:", error);
+      alert("Failed to update tagset");
+
+      // Reload the tagsets to get the current state from the server
+      const { getUserTagsets } = await import("@/lib/api/tagsets");
+      const response = await getUserTagsets();
+      if (response.success && Array.isArray(response.tagsets)) {
+        setTagSets(response.tagsets);
+      }
+    }
   };
 
   const exportTagSet = (tagSet: TagSet) => {
@@ -565,7 +629,7 @@ function TagSetsPage() {
                         <Eye className="h-4 w-4 mr-2" />
                         View Details
                       </DropdownMenuItem>
-                      <DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleStartEdit(tagSet)}>
                         <Edit className="h-4 w-4 mr-2" />
                         Edit
                       </DropdownMenuItem>
@@ -736,6 +800,141 @@ function TagSetsPage() {
             </DialogContent>
           </Dialog>
         )}
+
+        {/* Edit Tag Set Modal */}
+        <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+          <DialogContent className="sm:max-w-[600px]">
+            <DialogHeader>
+              <DialogTitle>Edit Tag Set</DialogTitle>
+              <DialogDescription>
+                Update your annotation tag set details.
+              </DialogDescription>
+            </DialogHeader>
+
+            {editingTagSet && (
+              <div className="space-y-4">
+                <div>
+                  <label className="text-sm font-medium">Name</label>
+                  <Input
+                    value={editingTagSet.name}
+                    onChange={(e) =>
+                      setEditingTagSet((prev) => ({
+                        ...prev!,
+                        name: e.target.value,
+                      }))
+                    }
+                    placeholder="Enter tag set name"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium">Description</label>
+                  <Textarea
+                    value={editingTagSet.description}
+                    onChange={(e) =>
+                      setEditingTagSet((prev) => ({
+                        ...prev!,
+                        description: e.target.value,
+                      }))
+                    }
+                    placeholder="Enter tag set description"
+                    rows={2}
+                  />
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium">Tags</label>
+                  <div className="space-y-2">
+                    {/* Add new tag form */}
+                    <div className="flex space-x-2">
+                      <Input
+                        value={newTag.name}
+                        onChange={(e) =>
+                          setNewTag((prev) => ({
+                            ...prev,
+                            name: e.target.value,
+                          }))
+                        }
+                        placeholder="Tag name"
+                        className="flex-1"
+                      />
+                      <input
+                        type="color"
+                        value={newTag.color}
+                        onChange={(e) =>
+                          setNewTag((prev) => ({
+                            ...prev,
+                            color: e.target.value,
+                          }))
+                        }
+                        className="w-12 h-10 border rounded"
+                      />
+                      <Input
+                        value={newTag.description}
+                        onChange={(e) =>
+                          setNewTag((prev) => ({
+                            ...prev,
+                            description: e.target.value,
+                          }))
+                        }
+                        placeholder="Description"
+                        className="flex-1"
+                      />
+                      <Button onClick={() => handleAddTagToEditing()}>
+                        Add
+                      </Button>
+                    </div>
+
+                    {/* Existing tags */}
+                    <div className="space-y-1 max-h-32 overflow-y-auto">
+                      {editingTagSet.tags.map((tag, index) => (
+                        <div
+                          key={index}
+                          className="flex items-center justify-between p-2 bg-muted rounded"
+                        >
+                          <div className="flex items-center space-x-2">
+                            <div
+                              className="w-4 h-4 rounded"
+                              style={{ backgroundColor: tag.color }}
+                            />
+                            <span className="font-medium">{tag.name}</span>
+                            <span className="text-sm text-muted-foreground">
+                              {tag.description}
+                            </span>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleRemoveTagFromEditing(index)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setIsEditDialogOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleUpdateTagSet}
+                disabled={
+                  !editingTagSet?.name || editingTagSet?.tags.length === 0
+                }
+              >
+                Save Changes
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </AppLayout>
   );
