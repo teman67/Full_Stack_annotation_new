@@ -9,9 +9,9 @@ The platform enables researchers and teams to efficiently annotate scientific do
 ---
 
 <div align="center">
-  <img src="poster.png" alt="AgentSem Poster" width="100%" style="max-width: 1200px; height: auto;">
+  <img src="./image/Screenshot 2025-09-23 143403.png" alt="AgentSem Poster" width="100%" style="max-width: 1200px; height: auto;">
   <br>
-  <em>Overview of the AgentSem system architecture and workflow for automated semantic data generation</em>
+  <em>Overview of the annotation application using LLM</em>
   <br><br>
   <a href="./image/Screenshot 2025-09-23 143403.png" target="_blank">🔍 View Full Resolution</a>
 </div>
