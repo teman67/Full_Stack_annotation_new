@@ -42,7 +42,8 @@ class Settings(BaseSettings):
     
     # File Upload
     max_file_size_mb: int = int(os.getenv("MAX_FILE_SIZE_MB", "50"))
-    allowed_file_types: List[str] = ["txt", "pdf", "docx"]
+    max_upload_size: int = max_file_size_mb * 1024 * 1024  # Convert MB to bytes
+    allowed_file_types: List[str] = ["txt", "pdf", "docx", "csv"]
     upload_dir: str = "uploads"
     
     # Admin

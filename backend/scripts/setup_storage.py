@@ -4,6 +4,7 @@ Supabase Storage Setup Script
 This script sets up the required storage buckets in Supabase for the annotation application.
 It creates the following buckets:
 1. 'tagset-files': For storing uploaded tagset CSV files
+2. 'documents': For storing uploaded document files
 
 Each bucket is set up with proper security policies to ensure:
 - Only authenticated users can upload files
@@ -168,6 +169,73 @@ def setup_tagset_files_bucket():
     
     return True
 
+def setup_documents_bucket():
+    """Set up the documents bucket and its policies"""
+    bucket_name = "documents"
+    
+    # Create the bucket (not public)
+    if not create_bucket(bucket_name, public=False):
+        return False
+    
+    # Define the policies for the documents bucket
+    upload_policy = {
+        "name": "Allow users to upload their own documents",
+        "definition": {
+            "role": "authenticated",
+            "operation": "INSERT",
+            "check": "uid() = auth.uid()"
+        }
+    }
+    
+    select_policy = {
+        "name": "Allow users to view their own documents",
+        "definition": {
+            "role": "authenticated",
+            "operation": "SELECT",
+            "check": "uid() = auth.uid()"
+        }
+    }
+    
+    update_policy = {
+        "name": "Allow users to update their own documents",
+        "definition": {
+            "role": "authenticated",
+            "operation": "UPDATE",
+            "check": "uid() = auth.uid()"
+        }
+    }
+    
+    delete_policy = {
+        "name": "Allow users to delete their own documents",
+        "definition": {
+            "role": "authenticated",
+            "operation": "DELETE",
+            "check": "uid() = auth.uid()"
+        }
+    }
+    
+    policies = [upload_policy, select_policy, update_policy, delete_policy]
+    
+    for policy in policies:
+        create_bucket_policy(bucket_name, policy["name"], policy)
+    
+    print("\n====== STEPS TO SET UP DOCUMENTS STORAGE POLICIES ======")
+    print("1. Go to your Supabase Dashboard: https://app.supabase.com")
+    print("2. Select your project")
+    print("3. Go to 'Storage' in the left sidebar")
+    print("4. Click on the 'documents' bucket")
+    print("5. Go to the 'Policies' tab")
+    print("6. For each operation (INSERT, SELECT, UPDATE, DELETE):")
+    print("   a. Click 'Add Policies'")
+    print("   b. Select the operation type")
+    print("   c. Choose 'Policies using custom SQL'")
+    print("   d. Enter the policy name (e.g., 'Allow users to upload their own documents')")
+    print("   e. Enter the SQL expression: uid() = auth.uid()")
+    print("   f. Click 'Save Policy'")
+    print("===============================================\n")
+    
+    return True
+
 def main():
     """Main function to set up all storage buckets and policies"""
     print("Setting up Supabase storage buckets...")
@@ -179,6 +247,14 @@ def main():
         print("   as described above in the Supabase Dashboard")
     else:
         print("❌ Tagset files bucket setup failed")
+        
+    # Set up documents bucket
+    if setup_documents_bucket():
+        print("✅ Documents bucket created successfully")
+        print("⚠️ IMPORTANT: You need to manually set up the storage policies")
+        print("   as described above in the Supabase Dashboard")
+    else:
+        print("❌ Documents bucket setup failed")
     
     # Check if the tagset table exists in the database
     try:

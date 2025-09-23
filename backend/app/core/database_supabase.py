@@ -159,8 +159,58 @@ class DatabaseService:
     def get_user_by_id(self, user_id: str) -> Optional[Dict]:
         """Get user by ID"""
         try:
-            response = self.client.table('users').select('*').eq('id', user_id).execute()
-            return response.data[0] if response.data else None
+            # Ensure user_id is a string to handle UUID correctly
+            user_id_str = str(user_id)
+            
+            # Try to get from users table first
+            try:
+                response = self.client.table('users').select('*').eq('id', user_id_str).execute()
+                if response.data and len(response.data) > 0:
+                    return response.data[0]
+            except Exception as users_error:
+                print(f"Error querying users table: {users_error}")
+            
+            # If that fails, try to get directly from auth.users (need admin access)
+            try:
+                # We need admin client for this (bypasses RLS)
+                from app.core.database_supabase import admin_supabase
+                if admin_supabase:
+                    # Get user from auth.users directly
+                    user_response = admin_supabase.table('auth.users').select('*').eq('id', user_id_str).execute()
+                    if user_response.data and len(user_response.data) > 0:
+                        auth_user = user_response.data[0]
+                        # Create a simplified user object
+                        return {
+                            "id": auth_user.get("id"),
+                            "email": auth_user.get("email"),
+                            "name": auth_user.get("raw_user_meta_data", {}).get("name", auth_user.get("email").split('@')[0]),
+                            "is_admin": False,  # Default
+                            "is_active": True,  # Default
+                            "email_verified": auth_user.get("email_confirmed_at") is not None
+                        }
+            except Exception as auth_error:
+                print(f"Error querying auth.users table: {auth_error}")
+                
+            # Last resort: try to get from auth API
+            try:
+                # Get user data from Supabase Auth API
+                user_response = self.client.auth.admin.get_user_by_id(user_id_str)
+                if user_response:
+                    user_data = user_response.user
+                    # Create a simplified user object
+                    return {
+                        "id": user_data.id,
+                        "email": user_data.email,
+                        "name": getattr(user_data, 'user_metadata', {}).get('name', user_data.email.split('@')[0]) if user_data.email else None,
+                        "is_admin": False,  # Default
+                        "is_active": True,  # Default
+                        "email_verified": user_data.email_confirmed_at is not None
+                    }
+            except Exception as api_error:
+                print(f"Error getting user from Auth API: {api_error}")
+            
+            # All methods failed
+            return None
         except Exception as e:
             print(f"Get user by ID error: {e}")
             return None
@@ -236,7 +286,7 @@ class DatabaseService:
         """Create a new project"""
         try:
             project_data = {
-                "owner_id": user_id,
+                "owner_id": str(user_id),  # Ensure UUID is stored as string
                 "name": name,
                 "description": description,
             }
@@ -256,7 +306,7 @@ class DatabaseService:
             print(f"Get projects error: {e}")
             return []
     
-    def get_project_by_id(self, project_id: str) -> Optional[Dict]:
+    def get_project_by_id(self, project_id: int) -> Optional[Dict]:
         """Get project by ID"""
         try:
             response = self.client.table('projects').select('*').eq('id', project_id).execute()
@@ -264,8 +314,17 @@ class DatabaseService:
         except Exception as e:
             print(f"Get project error: {e}")
             return None
+            
+    def check_project_collaborator(self, project_id: int, user_id: str) -> Optional[Dict]:
+        """Check if user is a collaborator on the project"""
+        try:
+            response = self.client.table('project_collaborators').select('*').eq('project_id', project_id).eq('user_id', user_id).execute()
+            return response.data[0] if response.data else None
+        except Exception as e:
+            print(f"Check collaborator error: {e}")
+            return None
     
-    def update_project(self, project_id: str, update_data: Dict) -> Dict:
+    def update_project(self, project_id: int, update_data: Dict) -> Dict:
         """Update a project"""
         try:
             response = self.client.table('projects').update(update_data).eq('id', project_id).execute()
@@ -273,7 +332,7 @@ class DatabaseService:
         except Exception as e:
             return {"success": False, "error": str(e)}
     
-    def delete_project(self, project_id: str) -> Dict:
+    def delete_project(self, project_id: int) -> Dict:
         """Delete a project"""
         try:
             response = self.client.table('projects').delete().eq('id', project_id).execute()
@@ -298,7 +357,8 @@ class DatabaseService:
         except Exception as e:
             return {"success": False, "error": str(e)}
     
-    def get_project_documents(self, project_id: str) -> List[Dict]:
+    # Document operations
+    def get_documents_by_project_id(self, project_id: int) -> List[Dict]:
         """Get all documents for a project"""
         try:
             response = self.client.table('documents').select('*').eq('project_id', project_id).execute()
@@ -306,6 +366,120 @@ class DatabaseService:
         except Exception as e:
             print(f"Get documents error: {e}")
             return []
+    
+    def get_document_by_id(self, document_id: int) -> Optional[Dict]:
+        """Get a document by ID"""
+        try:
+            response = self.client.table('documents').select('*').eq('id', document_id).limit(1).execute()
+            return response.data[0] if response.data else None
+        except Exception as e:
+            print(f"Get document error: {e}")
+            return None
+    
+    def create_document(self, document_data: Dict) -> Dict:
+        """Create a new document"""
+        try:
+            # Check if documents table exists first
+            try:
+                # Quick check to see if the table exists
+                self.client.table('documents').select('id').limit(1).execute()
+            except Exception as table_error:
+                print(f"Error checking documents table: {table_error}")
+                print("Attempting to create documents table...")
+                
+                # Try to create the documents table if it doesn't exist
+                admin_client = None
+                try:
+                    from app.core.database_supabase import admin_supabase
+                    if admin_supabase:
+                        admin_client = admin_supabase
+                except ImportError:
+                    pass
+                
+                if admin_client:
+                    try:
+                        # Create the documents table using SQL
+                        sql = """
+                        CREATE TABLE IF NOT EXISTS documents (
+                            id SERIAL PRIMARY KEY,
+                            name TEXT NOT NULL,
+                            content TEXT,
+                            description TEXT,
+                            tags JSONB,
+                            project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                            uploaded_by UUID NOT NULL REFERENCES auth.users(id),
+                            file_path TEXT,
+                            file_size INTEGER,
+                            file_type TEXT,
+                            created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+                            updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+                        );
+                        """
+                        admin_client.rpc('execute_sql', {'sql': sql}).execute()
+                        print("Created documents table successfully")
+                    except Exception as create_error:
+                        print(f"Error creating documents table: {create_error}")
+                        raise  # Re-raise to be caught by outer try
+            
+            # Ensure uploaded_by is stored as string to handle UUID correctly
+            if "uploaded_by" in document_data:
+                document_data["uploaded_by"] = str(document_data["uploaded_by"])
+            
+            print(f"Inserting document: project_id={document_data.get('project_id')}, name={document_data.get('name')}")
+            print(f"Uploaded by: {document_data.get('uploaded_by')}")
+            
+            response = self.client.table('documents').insert(document_data).execute()
+            if response.data:
+                print(f"Document created successfully with ID: {response.data[0].get('id')}")
+                return response.data[0]
+            else:
+                print("Document creation response had no data")
+                return None
+        except Exception as e:
+            print(f"Create document error: {e}")
+            # Return a dict with error info instead of None
+            return {"error": str(e), "success": False}
+    
+    def update_document(self, document_id: int, update_data: Dict) -> Dict:
+        """Update a document"""
+        try:
+            response = self.client.table('documents').update(update_data).eq('id', document_id).execute()
+            return response.data[0] if response.data else None
+        except Exception as e:
+            print(f"Update document error: {e}")
+            return None
+    
+    def delete_document(self, document_id: int) -> bool:
+        """Delete a document"""
+        try:
+            response = self.client.table('documents').delete().eq('id', document_id).execute()
+            return bool(response.data)
+        except Exception as e:
+            print(f"Delete document error: {e}")
+            return False
+    
+    def upload_file_to_storage(self, bucket: str, path: str, file_content: bytes) -> Dict:
+        """Upload a file to Supabase Storage"""
+        try:
+            response = self.client.storage.from_(bucket).upload(path, file_content)
+            return response
+        except Exception as e:
+            print(f"Upload file error: {e}")
+            raise e
+    
+    def delete_file_from_storage(self, bucket: str, path: str) -> Dict:
+        """Delete a file from Supabase Storage"""
+        try:
+            response = self.client.storage.from_(bucket).remove([path])
+            return response
+        except Exception as e:
+            print(f"Delete file error: {e}")
+            raise e
+            
+    # Legacy method for backward compatibility
+    def get_project_documents(self, project_id: str) -> List[Dict]:
+        """Get all documents for a project (legacy method)"""
+        return self.get_documents_by_project_id(project_id)
     
     # Annotation operations
     def create_annotation(self, document_id: str, user_id: str, annotation_data: Dict) -> Dict:

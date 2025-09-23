@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { withAuth } from "@/components/auth/withAuth";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
@@ -45,6 +45,7 @@ import {
   FileVideo,
   FileAudio,
   ArrowLeft,
+  RefreshCw,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -66,17 +67,71 @@ interface Document {
 const mockDocuments: Document[] = [];
 
 function DocumentsPage() {
-  const [documents] = useState(mockDocuments);
+  const [documents, setDocuments] = useState(mockDocuments);
+  const [isLoadingDocuments, setIsLoadingDocuments] = useState(true);
+  const [isDeleting, setIsDeleting] = useState<number | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false);
   const [dragActive, setDragActive] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState("");
   const [uploadData, setUploadData] = useState({
     name: "",
     description: "",
     tags: "",
   });
 
+  // Reset form when dialog closes
+  useEffect(() => {
+    if (!isUploadDialogOpen) {
+      setSelectedFile(null);
+      setUploadData({
+        name: "",
+        description: "",
+        tags: "",
+      });
+      setUploadError("");
+    }
+  }, [isUploadDialogOpen]);
+
+  // Fetch documents on component mount
+  const fetchDocuments = async () => {
+    try {
+      setIsLoadingDocuments(true);
+      const { getProjectDocuments } = await import("@/lib/api/documents");
+      const projectId = 1; // Assuming project ID 1 for now
+      const fetchedDocuments = await getProjectDocuments(projectId);
+
+      // Transform backend response to match frontend Document interface
+      const transformedDocuments = fetchedDocuments.map((doc: any) => ({
+        id: doc.id,
+        name: doc.name || doc.filename || "Untitled",
+        originalName: doc.filename || doc.name || "Unknown",
+        size: doc.size ? `${(doc.size / 1024).toFixed(1)} KB` : "Unknown size",
+        type: doc.content_type || doc.type || "Unknown",
+        uploadedAt:
+          doc.created_at || doc.uploadedAt || new Date().toISOString(),
+        uploadedBy: doc.uploaded_by || "Unknown user",
+        status: "completed",
+        annotations: 0,
+        description: doc.description || "",
+        tags: doc.tags || [],
+      }));
+
+      setDocuments(transformedDocuments);
+      console.log("Documents fetched successfully:", transformedDocuments);
+    } catch (error) {
+      console.error("Error fetching documents:", error);
+    } finally {
+      setIsLoadingDocuments(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchDocuments();
+  }, []);
   const getStatusColor = (status: string) => {
     switch (status) {
       case "annotated":
@@ -126,29 +181,135 @@ function DocumentsPage() {
     }
   }, []);
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setDragActive(false);
 
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      // Handle file upload here
-      console.log("Files dropped:", e.dataTransfer.files);
-    }
-  }, []);
+      if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+        // Set the selected file
+        setSelectedFile(e.dataTransfer.files[0]);
+
+        // Prefill name with filename if empty
+        if (!uploadData.name) {
+          const fileName = e.dataTransfer.files[0].name.split(".")[0]; // Remove extension
+          setUploadData((prev) => ({ ...prev, name: fileName }));
+        }
+
+        // Clear any previous errors
+        setUploadError("");
+      }
+    },
+    [uploadData.name]
+  );
 
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      // Handle file upload here
-      console.log("File selected:", e.target.files[0]);
+      // Set the selected file
+      setSelectedFile(e.target.files[0]);
+
+      // Prefill name with filename if empty
+      if (!uploadData.name) {
+        const fileName = e.target.files[0].name.split(".")[0]; // Remove extension
+        setUploadData((prev) => ({ ...prev, name: fileName }));
+      }
+
+      // Clear any previous errors
+      setUploadError("");
     }
   };
 
-  const handleUpload = () => {
-    // Handle the upload logic here
-    console.log("Upload data:", uploadData);
-    setIsUploadDialogOpen(false);
-    setUploadData({ name: "", description: "", tags: "" });
+  const handleDelete = async (documentId: number, documentName: string) => {
+    if (
+      !confirm(
+        `Are you sure you want to delete "${documentName}"? This action cannot be undone.`
+      )
+    ) {
+      return;
+    }
+
+    try {
+      setIsDeleting(documentId);
+      console.log(`Deleting document ${documentId}: ${documentName}`);
+
+      // Import the deleteDocument function
+      const { deleteDocument } = await import("@/lib/api/documents");
+
+      // Delete the document
+      await deleteDocument(documentId);
+
+      console.log(`Document ${documentId} deleted successfully`);
+
+      // Refresh the documents list
+      await fetchDocuments();
+    } catch (error: unknown) {
+      console.error("Error deleting document:", error);
+      alert(
+        error instanceof Error
+          ? `Failed to delete document: ${error.message}`
+          : "Failed to delete document. Please try again."
+      );
+    } finally {
+      setIsDeleting(null);
+    }
+  };
+
+  const handleUpload = async () => {
+    if (!selectedFile) {
+      setUploadError("Please select a file to upload");
+      return;
+    }
+
+    if (!uploadData.name.trim()) {
+      setUploadError("Please enter a name for the document");
+      return;
+    }
+
+    try {
+      setIsUploading(true);
+      setUploadError("");
+
+      // Import the uploadDocument function
+      const { uploadDocument } = await import("@/lib/api/documents");
+
+      // Convert comma-separated tags to array
+      const tags = uploadData.tags
+        ? uploadData.tags.split(",").map((tag) => tag.trim())
+        : [];
+
+      // Upload the document (using project ID 1 for now - should be dynamic)
+      const projectId = 1;
+      const result = await uploadDocument(
+        projectId,
+        selectedFile,
+        uploadData.name,
+        uploadData.description,
+        tags
+      );
+
+      if (result) {
+        // Upload successful - refetch documents to show the new file
+        console.log("Document uploaded:", result);
+
+        // Refetch documents to update the list
+        await fetchDocuments();
+
+        // Close the dialog
+        setIsUploadDialogOpen(false);
+
+        // Reset form
+        setSelectedFile(null);
+        setUploadData({ name: "", description: "", tags: "" });
+      }
+    } catch (error: unknown) {
+      console.error("Error uploading document:", error);
+      setUploadError(
+        error instanceof Error ? error.message : "Failed to upload document"
+      );
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   return (
@@ -170,111 +331,203 @@ function DocumentsPage() {
               </p>
             </div>
           </div>
-          <Dialog
-            open={isUploadDialogOpen}
-            onOpenChange={setIsUploadDialogOpen}
-          >
-            <DialogTrigger asChild>
-              <Button>
-                <Upload className="h-4 w-4 mr-2" />
-                Upload Document
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-[525px]">
-              <DialogHeader>
-                <DialogTitle>Upload Document</DialogTitle>
-                <DialogDescription>
-                  Upload a new document to your project for annotation.
-                </DialogDescription>
-              </DialogHeader>
-
-              {/* Drag and Drop Area */}
-              <div
-                className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
-                  dragActive
-                    ? "border-primary bg-primary/5"
-                    : "border-muted-foreground/25"
+          <div className="flex space-x-2">
+            <Button
+              variant="outline"
+              onClick={fetchDocuments}
+              disabled={isLoadingDocuments}
+            >
+              <RefreshCw
+                className={`h-4 w-4 mr-2 ${
+                  isLoadingDocuments ? "animate-spin" : ""
                 }`}
-                onDragEnter={handleDrag}
-                onDragLeave={handleDrag}
-                onDragOver={handleDrag}
-                onDrop={handleDrop}
-              >
-                <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
-                <p className="text-sm font-medium mb-1">
-                  Drag and drop your file here, or click to browse
-                </p>
-                <p className="text-xs text-muted-foreground mb-4">
-                  Supports PDF, TXT, DOC, and other document formats
-                </p>
-                <input
-                  type="file"
-                  onChange={handleFileInput}
-                  className="hidden"
-                  id="file-upload"
-                  accept=".pdf,.txt,.doc,.docx"
-                />
-                <label htmlFor="file-upload">
-                  <Button variant="outline" className="cursor-pointer">
-                    Choose File
-                  </Button>
-                </label>
-              </div>
-
-              <div className="space-y-4">
-                <div>
-                  <label className="text-sm font-medium">Document Name</label>
-                  <Input
-                    value={uploadData.name}
-                    onChange={(e) =>
-                      setUploadData((prev) => ({
-                        ...prev,
-                        name: e.target.value,
-                      }))
-                    }
-                    placeholder="Enter document name"
-                  />
-                </div>
-                <div>
-                  <label className="text-sm font-medium">Description</label>
-                  <Textarea
-                    value={uploadData.description}
-                    onChange={(e) =>
-                      setUploadData((prev) => ({
-                        ...prev,
-                        description: e.target.value,
-                      }))
-                    }
-                    placeholder="Enter document description"
-                    rows={3}
-                  />
-                </div>
-                <div>
-                  <label className="text-sm font-medium">Tags</label>
-                  <Input
-                    value={uploadData.tags}
-                    onChange={(e) =>
-                      setUploadData((prev) => ({
-                        ...prev,
-                        tags: e.target.value,
-                      }))
-                    }
-                    placeholder="Enter tags separated by commas"
-                  />
-                </div>
-              </div>
-
-              <DialogFooter>
-                <Button
-                  variant="outline"
-                  onClick={() => setIsUploadDialogOpen(false)}
-                >
-                  Cancel
+              />
+              Refresh
+            </Button>
+            <Dialog
+              open={isUploadDialogOpen}
+              onOpenChange={setIsUploadDialogOpen}
+            >
+              <DialogTrigger asChild>
+                <Button>
+                  <Upload className="h-4 w-4 mr-2" />
+                  Upload Document
                 </Button>
-                <Button onClick={handleUpload}>Upload Document</Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-[525px]">
+                <DialogHeader>
+                  <DialogTitle>Upload Document</DialogTitle>
+                  <DialogDescription>
+                    Upload a new document to your project for annotation.
+                  </DialogDescription>
+                </DialogHeader>
+
+                {/* Drag and Drop Area */}
+                <div
+                  className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
+                    dragActive
+                      ? "border-primary bg-primary/5"
+                      : "border-muted-foreground/25"
+                  }`}
+                  onDragEnter={handleDrag}
+                  onDragLeave={handleDrag}
+                  onDragOver={handleDrag}
+                  onDrop={handleDrop}
+                >
+                  {!selectedFile ? (
+                    <>
+                      <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+                      <p className="text-sm font-medium mb-1">
+                        Drag and drop your file here, or click to browse
+                      </p>
+                      <p className="text-xs text-muted-foreground mb-4">
+                        Supports PDF, TXT, DOC, and other document formats
+                      </p>
+                      <input
+                        type="file"
+                        onChange={handleFileInput}
+                        className="hidden"
+                        id="file-upload"
+                        accept=".pdf,.txt,.doc,.docx"
+                      />
+                      <label htmlFor="file-upload">
+                        <span className="inline-block">
+                          <Button
+                            variant="outline"
+                            type="button"
+                            className="cursor-pointer"
+                            onClick={() =>
+                              document.getElementById("file-upload")?.click()
+                            }
+                          >
+                            Choose File
+                          </Button>
+                        </span>
+                      </label>
+                    </>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-center">
+                        {getFileIcon(selectedFile.type)}
+                        <span className="text-sm font-medium ml-2">
+                          {selectedFile.name}
+                        </span>
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setSelectedFile(null);
+                          const fileInput = document.getElementById(
+                            "file-upload"
+                          ) as HTMLInputElement;
+                          if (fileInput) fileInput.value = "";
+                        }}
+                      >
+                        Change File
+                      </Button>
+                    </div>
+                  )}
+                </div>
+
+                {uploadError && (
+                  <div className="text-red-500 text-sm mt-2 p-2 bg-red-50 border border-red-200 rounded">
+                    {uploadError}
+                  </div>
+                )}
+
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-sm font-medium">Document Name</label>
+                    <Input
+                      value={uploadData.name}
+                      onChange={(e) =>
+                        setUploadData((prev) => ({
+                          ...prev,
+                          name: e.target.value,
+                        }))
+                      }
+                      placeholder="Enter document name"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">Description</label>
+                    <Textarea
+                      value={uploadData.description}
+                      onChange={(e) =>
+                        setUploadData((prev) => ({
+                          ...prev,
+                          description: e.target.value,
+                        }))
+                      }
+                      placeholder="Enter document description"
+                      rows={3}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">Tags</label>
+                    <Input
+                      value={uploadData.tags}
+                      onChange={(e) =>
+                        setUploadData((prev) => ({
+                          ...prev,
+                          tags: e.target.value,
+                        }))
+                      }
+                      placeholder="Enter tags separated by commas"
+                    />
+                  </div>
+                </div>
+
+                <DialogFooter>
+                  <div className="flex space-x-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => setIsUploadDialogOpen(false)}
+                      disabled={isUploading}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={handleUpload}
+                      disabled={isUploading || !selectedFile}
+                    >
+                      {isUploading ? (
+                        <span className="flex items-center">
+                          <svg
+                            className="animate-spin -ml-1 mr-3 h-4 w-4 text-white"
+                            xmlns="http://www.w3.org/2000/svg"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                          >
+                            <circle
+                              className="opacity-25"
+                              cx="12"
+                              cy="12"
+                              r="10"
+                              stroke="currentColor"
+                              strokeWidth="4"
+                            ></circle>
+                            <path
+                              className="opacity-75"
+                              fill="currentColor"
+                              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                            ></path>
+                          </svg>
+                          Uploading...
+                        </span>
+                      ) : (
+                        "Upload Document"
+                      )}
+                    </Button>
+                  </div>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </div>
         </div>
 
         {/* Filters and Search */}
@@ -322,93 +575,107 @@ function DocumentsPage() {
 
         {/* Documents Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredDocuments.map((doc) => (
-            <Card key={doc.id} className="hover:shadow-md transition-shadow">
-              <CardHeader className="pb-3">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center space-x-2">
-                    {getFileIcon(doc.type)}
-                    <div className="flex-1 min-w-0">
-                      <CardTitle className="text-base truncate">
-                        {doc.originalName}
-                      </CardTitle>
-                      <CardDescription className="text-sm">
-                        {doc.size} • {doc.uploadedAt}
-                      </CardDescription>
+          {isLoadingDocuments ? (
+            <div className="col-span-full text-center py-8">
+              <p className="text-gray-500">Loading documents...</p>
+            </div>
+          ) : (
+            filteredDocuments.map((doc) => (
+              <Card key={doc.id} className="hover:shadow-md transition-shadow">
+                <CardHeader className="pb-3">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center space-x-2">
+                      {getFileIcon(doc.type)}
+                      <div className="flex-1 min-w-0">
+                        <CardTitle className="text-base truncate">
+                          {doc.originalName}
+                        </CardTitle>
+                        <CardDescription className="text-sm">
+                          {doc.size} • {doc.uploadedAt}
+                        </CardDescription>
+                      </div>
                     </div>
-                  </div>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="sm">
-                        <MoreVertical className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent>
-                      <DropdownMenuItem asChild>
-                        <Link
-                          href={`/annotate/${doc.id}`}
-                          className="flex items-center"
-                        >
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="sm">
+                          <MoreVertical className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent>
+                        <DropdownMenuItem asChild>
+                          <Link
+                            href={`/annotate/${doc.id}`}
+                            className="flex items-center"
+                          >
+                            <Eye className="h-4 w-4 mr-2" />
+                            Annotate
+                          </Link>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem>
                           <Eye className="h-4 w-4 mr-2" />
-                          Annotate
-                        </Link>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem>
-                        <Eye className="h-4 w-4 mr-2" />
-                        View
-                      </DropdownMenuItem>
-                      <DropdownMenuItem>
-                        <Download className="h-4 w-4 mr-2" />
-                        Download
-                      </DropdownMenuItem>
-                      <DropdownMenuItem>
-                        <Edit className="h-4 w-4 mr-2" />
-                        Edit
-                      </DropdownMenuItem>
-                      <DropdownMenuItem className="text-red-600">
-                        <Trash2 className="h-4 w-4 mr-2" />
-                        Delete
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <p className="text-sm text-muted-foreground line-clamp-2">
-                  {doc.description}
-                </p>
+                          View
+                        </DropdownMenuItem>
+                        <DropdownMenuItem>
+                          <Download className="h-4 w-4 mr-2" />
+                          Download
+                        </DropdownMenuItem>
+                        <DropdownMenuItem>
+                          <Edit className="h-4 w-4 mr-2" />
+                          Edit
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="text-red-600"
+                          onClick={() => handleDelete(doc.id, doc.name)}
+                          disabled={isDeleting === doc.id}
+                        >
+                          <Trash2 className="h-4 w-4 mr-2" />
+                          {isDeleting === doc.id ? "Deleting..." : "Delete"}
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <p className="text-sm text-muted-foreground line-clamp-2">
+                    {doc.description}
+                  </p>
 
-                <div className="flex items-center justify-between">
-                  <Badge className={getStatusColor(doc.status)}>
-                    {doc.status.replace("_", " ")}
-                  </Badge>
-                  <span className="text-sm text-muted-foreground">
-                    {doc.annotations} annotations
-                  </span>
-                </div>
-
-                <div className="flex flex-wrap gap-1">
-                  {doc.tags.slice(0, 3).map((tag, index) => (
-                    <Badge key={index} variant="secondary" className="text-xs">
-                      {tag}
+                  <div className="flex items-center justify-between">
+                    <Badge className={getStatusColor(doc.status)}>
+                      {doc.status.replace("_", " ")}
                     </Badge>
-                  ))}
-                  {doc.tags.length > 3 && (
-                    <Badge variant="secondary" className="text-xs">
-                      +{doc.tags.length - 3}
-                    </Badge>
-                  )}
-                </div>
+                    <span className="text-sm text-muted-foreground">
+                      {doc.annotations} annotations
+                    </span>
+                  </div>
 
-                <div className="text-xs text-muted-foreground">
-                  Uploaded by {doc.uploadedBy}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                  <div className="flex flex-wrap gap-1">
+                    {doc.tags.slice(0, 3).map((tag, index) => (
+                      <Badge
+                        key={index}
+                        variant="secondary"
+                        className="text-xs"
+                      >
+                        {tag}
+                      </Badge>
+                    ))}
+                    {doc.tags.length > 3 && (
+                      <Badge variant="secondary" className="text-xs">
+                        +{doc.tags.length - 3}
+                      </Badge>
+                    )}
+                  </div>
+
+                  <div className="text-xs text-muted-foreground">
+                    Uploaded by {doc.uploadedBy}
+                  </div>
+                </CardContent>
+              </Card>
+            ))
+          )}
         </div>
 
-        {filteredDocuments.length === 0 && (
+        {filteredDocuments.length === 0 && !isLoadingDocuments && (
           <div className="text-center py-12">
             <FileText className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
             <h3 className="text-lg font-semibold mb-2">No documents found</h3>

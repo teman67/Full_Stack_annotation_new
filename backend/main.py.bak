@@ -85,8 +85,7 @@ app.include_router(projects_supabase_router, prefix="/api/projects", tags=["proj
 from app.api.tagsets_supabase import router as tagsets_supabase_router
 app.include_router(tagsets_supabase_router, prefix="/api/tagsets", tags=["tagsets"])
 
-# Use Supabase-only document router (no local storage)
-from app.api.documents_supabase_only import router as documents_supabase_router
+from app.api.documents_supabase import router as documents_supabase_router
 app.include_router(documents_supabase_router, prefix="/api/documents", tags=["documents"])
 
 # TODO: Update these remaining routers to use Supabase
