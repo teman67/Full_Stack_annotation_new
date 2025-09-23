@@ -65,7 +65,12 @@ export async function getDocument(documentId: number) {
  */
 export async function updateDocument(
   documentId: number,
-  documentData: { name?: string; description?: string; tags?: string[] }
+  documentData: {
+    name?: string;
+    description?: string;
+    tags?: string[];
+    content?: string;
+  }
 ) {
   const response = await api.put(`/documents/${documentId}`, documentData);
   return response.data;

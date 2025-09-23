@@ -67,6 +67,7 @@ interface TagSet {
 
 function TagSetsPage() {
   const [tagSets, setTagSets] = useState<TagSet[]>([]);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [isLoading, setIsLoading] = useState(true);
 
   // Load tagsets from API

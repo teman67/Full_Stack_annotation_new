@@ -176,6 +176,208 @@ async def get_project_documents_supabase(
     print(f"📋 Returning {len(documents)} documents")
     return documents
 
+@router.get("/{document_id}/content")
+async def get_document_content_supabase(
+    document_id: int,
+    current_user: dict = Depends(get_current_user_fixed),
+):
+    """Get the content of a document file from Supabase storage"""
+    print(f"=== GET DOCUMENT CONTENT {document_id} ===")
+    print(f"User: {current_user.get('email')} (ID: {current_user.get('id')})")
+    
+    try:
+        if admin_supabase:
+            # Get the document to check ownership and get file path
+            response = admin_supabase.table('documents').select('*').eq('id', document_id).execute()
+            
+            if not response.data:
+                raise HTTPException(status_code=404, detail="Document not found")
+            
+            doc = response.data[0]
+            
+            # Check if user owns this document
+            if doc.get('owner_id') != current_user.get('id'):
+                raise HTTPException(status_code=403, detail="You can only view your own documents")
+            
+            file_path = doc.get('file_path')
+            if not file_path:
+                raise HTTPException(status_code=404, detail="File path not found")
+            
+            print(f"Getting content for: {doc.get('name')} from {file_path}")
+            
+            # Get file from Supabase storage
+            try:
+                file_response = admin_supabase.storage.from_('documents').download(file_path)
+                
+                if file_response:
+                    # Try to decode as text
+                    try:
+                        content = file_response.decode('utf-8')
+                    except UnicodeDecodeError:
+                        # If it's not text, return a message
+                        content = "[Binary file - cannot display content]"
+                    
+                    return {
+                        "id": document_id,
+                        "name": doc.get('name'),
+                        "content": content,
+                        "file_path": file_path,
+                        "description": doc.get('description', ''),
+                        "file_size": len(file_response)
+                    }
+                else:
+                    raise HTTPException(status_code=404, detail="File not found in storage")
+                    
+            except Exception as e:
+                print(f"❌ Storage content fetch failed: {e}")
+                raise HTTPException(status_code=404, detail="File not found or inaccessible")
+        else:
+            raise HTTPException(status_code=500, detail="Database connection error")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error getting document content {document_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error getting document content: {str(e)}")
+
+@router.get("/{document_id}/download")
+async def download_document_supabase(
+    document_id: int,
+    current_user: dict = Depends(get_current_user_fixed),
+):
+    """Download a document file from Supabase storage"""
+    print(f"=== DOWNLOAD DOCUMENT {document_id} ===")
+    print(f"User: {current_user.get('email')} (ID: {current_user.get('id')})")
+    
+    try:
+        if admin_supabase:
+            # Get the document to check ownership and get file path
+            response = admin_supabase.table('documents').select('*').eq('id', document_id).execute()
+            
+            if not response.data:
+                raise HTTPException(status_code=404, detail="Document not found")
+            
+            doc = response.data[0]
+            
+            # Check if user owns this document
+            if doc.get('owner_id') != current_user.get('id'):
+                raise HTTPException(status_code=403, detail="You can only download your own documents")
+            
+            file_path = doc.get('file_path')
+            if not file_path:
+                raise HTTPException(status_code=404, detail="File path not found")
+            
+            print(f"Downloading: {doc.get('name')} from {file_path}")
+            
+            # Get file from Supabase storage
+            try:
+                file_response = admin_supabase.storage.from_('documents').download(file_path)
+                
+                if file_response:
+                    from fastapi.responses import Response
+                    
+                    # Determine content type
+                    content_type = "application/octet-stream"
+                    if file_path.endswith('.txt'):
+                        content_type = "text/plain"
+                    elif file_path.endswith('.pdf'):
+                        content_type = "application/pdf"
+                    elif file_path.endswith('.json'):
+                        content_type = "application/json"
+                    
+                    # Return file with proper headers
+                    return Response(
+                        content=file_response,
+                        media_type=content_type,
+                        headers={
+                            "Content-Disposition": f"attachment; filename=\"{doc.get('name', 'document')}\""
+                        }
+                    )
+                else:
+                    raise HTTPException(status_code=404, detail="File not found in storage")
+                    
+            except Exception as e:
+                print(f"❌ Storage download failed: {e}")
+                raise HTTPException(status_code=404, detail="File not found or inaccessible")
+        else:
+            raise HTTPException(status_code=500, detail="Database connection error")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error downloading document {document_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error downloading document: {str(e)}")
+
+@router.put("/{document_id}")
+async def update_document_supabase(
+    document_id: int,
+    document_data: dict,
+    current_user: dict = Depends(get_current_user_fixed),
+):
+    """Update a document's metadata"""
+    print(f"=== UPDATE DOCUMENT {document_id} ===")
+    print(f"User: {current_user.get('email')} (ID: {current_user.get('id')})")
+    print(f"Update data: {document_data}")
+    
+    try:
+        if admin_supabase:
+            # First, get the document to check ownership
+            response = admin_supabase.table('documents').select('*').eq('id', document_id).execute()
+            
+            if not response.data:
+                raise HTTPException(status_code=404, detail="Document not found")
+            
+            doc = response.data[0]
+            
+            # Check if user owns this document
+            if doc.get('owner_id') != current_user.get('id'):
+                raise HTTPException(status_code=403, detail="You can only edit your own documents")
+            
+            # Update the document
+            update_data = {}
+            if 'name' in document_data:
+                update_data['name'] = document_data['name']
+            if 'description' in document_data:
+                update_data['description'] = document_data['description']
+            if 'tags' in document_data:
+                update_data['tags'] = document_data['tags']
+            
+            # Handle content update if provided
+            if 'content' in document_data:
+                file_path = doc.get('file_path')
+                if file_path:
+                    try:
+                        # Update the file content in Supabase storage
+                        content_bytes = document_data['content'].encode('utf-8')
+                        upload_response = admin_supabase.storage.from_('documents').update(
+                            file_path, 
+                            content_bytes,
+                            {"content-type": "text/plain"}
+                        )
+                        print(f"✅ File content updated in storage: {file_path}")
+                    except Exception as e:
+                        print(f"❌ Error updating file content: {e}")
+                        raise HTTPException(status_code=500, detail=f"Failed to update file content: {str(e)}")
+            
+            if not update_data and 'content' not in document_data:
+                raise HTTPException(status_code=400, detail="No valid fields to update")
+            
+            update_response = admin_supabase.table('documents').update(update_data).eq('id', document_id).execute()
+            
+            if update_response.data:
+                print(f"✅ Document {document_id} updated successfully")
+                return update_response.data[0]
+            else:
+                raise HTTPException(status_code=500, detail="Failed to update document")
+        else:
+            raise HTTPException(status_code=500, detail="Database connection error")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error updating document {document_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error updating document: {str(e)}")
+
 @router.delete("/{document_id}")
 async def delete_document_supabase(
     document_id: int,
